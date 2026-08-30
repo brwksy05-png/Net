@@ -1,14 +1,13 @@
 {
-  "name": "netflix-epr-bot",
+  "name": "netflix-epr-v17",
   "version": "1.0.0",
-  "description": "Netflix EPR Telegram Bot with Iraqi Proxy",
+  "description": "Netflix EPR Telegram Bot V17",
   "main": "netflix.js",
   "scripts": {
     "start": "node netflix.js"
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "node-telegram-bot-api": "^0.63.0",
     "uuid": "^9.0.0"
   }
 }

@@ -22,6 +22,13 @@ if (!BOT_TOKEN) {
 const TG_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const TG = axios.create({ timeout: 45000 });
 
+// تعريفه بشكل صحيح لكي لا تظهر مشكلة bot is not defined
+const bot = {
+    async sendMessage(chatId, text, options = {}) {
+        return await tgCall("sendMessage", { chat_id: String(chatId), text, ...options });
+    }
+};
+
 // Persisted-query IDs
 const PQ_MEMBERSHIP = "3f50f3b3-fff8-48c0-bbd3-5fa2cb04b3c1";
 const PQ_INIT_SIGNUP = "59134b11-7416-42ca-abb7-6d1f318975fe";
@@ -628,7 +635,7 @@ async function runJob(chatId, eprUrl) {
         await fastFlow(chatId, eprUrl);
     } catch (exc) {
         let errPath = path.join(TMPDIR, `netflix_fast_v17_error_${Date.now()}.txt`);
-        fs.writeFileSync(errPath, `${exc.name}: ${exc.message}\n${exc.stack}\n`, 'utf8');
+        fs.writeFileSync(errPath, `${exc.name}: ${exc.message}\n${exc.stack || ''}\n`, 'utf8');
         await sendMessage(chatId, `❌ V17 توقف:\n${exc.name}: ${exc.message}`);
         await sendDocument(chatId, errPath, "تشخيص V17 المختصر");
     } finally {
@@ -650,10 +657,34 @@ function startJob(chatId, eprUrl) {
 }
 
 // ---------------- Telegram Bot Listeners ----------------
-bot.on('message', async (msg) => {
-    let chatId = msg.chat.id;
-    let userId = msg.from.id;
-    let text = (msg.text || "").trim();
+async function pollForever() {
+    console.log("\nNetflix EPR Telegram V17 PHONE + VERIFY HANDOFF (Node.js)");
+    console.log("[+] Direct GraphQL + phone prompt; Verify can trigger payment MFA, OTP entry remains manual.");
+    let offset = 0;
+    while (true) {
+        try {
+            let updates = await tgCall("getUpdates", {
+                offset: String(offset),
+                timeout: "30",
+                allowed_updates: JSON.stringify(["message"]),
+            }, 40000);
+
+            for (let upd of updates || []) {
+                offset = Math.max(offset, parseInt(upd.update_id || 0) + 1);
+                if (upd.message) {
+                    await handleMessage(upd.message);
+                }
+            }
+        } catch (exc) {
+            await new Promise(r => setTimeout(r, 2000));
+        }
+    }
+}
+
+async function handleMessage(msg) {
+    let chatId = nestedGet(msg, "chat", "id");
+    let userId = nestedGet(msg, "from", "id");
+    let text = String(nestedGet(msg, "text") || "").trim();
 
     if (!chatId || !userId) return;
     if (!ensureOwner(userId)) {
@@ -703,7 +734,7 @@ bot.on('message', async (msg) => {
     }
 
     await sendMessage(chatId, "اضغط «إنشاء حساب» حتى تبدأ. وإذا وصلت OTP مال الفوترة، دخله يدويًا داخل Netflix وليس بالبوت.", true);
-});
+}
 
-console.log("\nNetflix EPR Telegram V17 PHONE + VERIFY HANDOFF (Node.js)");
-console.log("[+] Direct GraphQL + phone prompt; Verify can trigger payment MFA, OTP entry remains manual.");
+// بدء التشغيل
+pollForever();
