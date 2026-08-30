@@ -129,29 +129,30 @@ function ensureOwner(uid) {
     return owner === uid;
 }
 
-// ---------------- Phone Normalizer ----------------
+// ---------------- Fixed Phone Normalizer ----------------
 function normalizeIqPhone(text) {
     let digits = (text || "").replace(/\D+/g, "");
-    if (digits.startsWith("00964")) digits = digits.slice(2);
-    if (digits.startsWith("0") && digits.length === 11) digits = digits.slice(1);
-    if (digits.startsWith("964") && digits.length === 12) {
-        // صحيح تماماً
-    } else if (digits.length === 10 && digits.startsWith("7")) {
-        digits = "964" + digits;
-    } else if (digits.length === 11 && digits.startsWith("964")) {
-        // مقبول
-    } else if (digits.length === 11 && digits.startsWith("07")) {
-        digits = "964" + digits.slice(1);
-    } else {
-        // تنظيف افتراضي للعراق
-        if (digits.length >= 10) {
-            if (!digits.startsWith("964")) {
-                if (digits.startsWith("0")) digits = digits.slice(1);
-                digits = "964" + digits.slice(-10);
-            }
-        }
+    if (digits.startsWith("00964")) {
+        digits = digits.slice(2);
     }
-    if (digits.length === 12 && digits.startsWith("964")) return digits;
+    if (digits.startsWith("964") && digits.length === 13) {
+        return digits;
+    }
+    if (digits.startsWith("964") && digits.length === 12) {
+        return digits;
+    }
+    if (digits.startsWith("0") && digits.length === 11) {
+        return "964" + digits.slice(1);
+    }
+    if (digits.length === 10 && digits.startsWith("7")) {
+        return "964" + digits;
+    }
+    if (digits.length === 11 && digits.startsWith("7")) {
+        return "964" + digits;
+    }
+    if (digits.length >= 10) {
+        return "964" + digits.slice(-10);
+    }
     return null;
 }
 
@@ -424,6 +425,7 @@ async function handleMessage(msg) {
         }
         st.phone_value = phone;
         st.awaiting_phone = false;
+        await sendMessage(chatId, `📲 تم استلام الرقم وتنسيقه (${phone}). جاري المعالجة...`);
         return;
     }
 
