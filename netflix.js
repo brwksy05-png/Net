@@ -23,10 +23,11 @@ if (!BOT_TOKEN) {
 const TG_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const TG = axios.create({ timeout: 45000 });
 
-// إعدادات البروكسي (السليمانية / العراق)
-const PROXY_SERVER = "rp.scrapegw.com:6060";
+// دمج بيانات المصادقة والبروكسي مباشرة في عنوان السيرفر لحل مشكلة 407 نهائياً
 const PROXY_USER = "et95yha52718u9-country-iq-state-assulaymaniyah";
 const PROXY_PASS = "cwf2pqqblvu5ci5";
+const PROXY_HOST = "rp.scrapegw.com:6060";
+const PROXY_URL_WITH_AUTH = `http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}`;
 
 const bot = {
     async sendMessage(chatId, text, options = {}) {
@@ -144,13 +145,13 @@ function normalizeIqPhone(text) {
     return null;
 }
 
-// ---------------- Puppeteer Browser Automation (Proxy Fixed) ----------------
+// ---------------- Puppeteer Browser Automation (Proxy Auth Fixed) ----------------
 async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
-    await sendMessage(chatId, "🌐 جاري تشغيل المتصفح وإعداد المصادقة المسبقة على بروكسي السليمانية...");
+    await sendMessage(chatId, "🌐 جاري تشغيل المتصفح عبر بروكسي السليمانية (تم ضبط المصادقة المباشرة)...");
     const browser = await puppeteer.launch({
         headless: "new",
         args: [
-            `--proxy-server=${PROXY_SERVER}`,
+            `--proxy-server=${PROXY_URL_WITH_AUTH}`,
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
@@ -161,25 +162,17 @@ async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
     try {
         const page = await browser.newPage();
         
-        // ضبط بيانات الاعتماد قبل فتح أي صفحة لمنع خطأ 407
-        await page.authenticate({
-            username: PROXY_USER,
-            password: PROXY_PASS
-        });
-
         await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
         
         await sendMessage(chatId, "🔗 جاري فتح رابط EPR في المتصفح وتخطي الحماية...");
-        
-        // محاولة فتح الرابط مع التعامل مع إعادة المحاولة لضمان تجاوز الخطأ المؤقت
-        await page.goto(eprUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await new Promise(r => setTimeout(r, 5000));
+        await page.goto(eprUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+        await new Promise(r => setTimeout(r, 4000));
 
         let scPath1 = path.join(TMPDIR, `step1_${Date.now()}.png`);
         await page.screenshot({ path: scPath1 });
-        await sendPhoto(chatId, scPath1, "📸 صورة 1: فتح الرابط بنجاح عبر بروكسي السليمانية");
+        await sendPhoto(chatId, scPath1, "📸 صورة 1: فتح الرابط بنجاح بدون خطأ 407");
 
-        // الضغط على زر البدء أو المتابعة (Finish Sign-Up / Start)
+        // الضغط على زر البدء أو المتابعة
         try {
             await page.evaluate(() => {
                 const btns = Array.from(document.querySelectorAll('button, a, [role="button"]'));
@@ -188,9 +181,8 @@ async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
             });
         } catch (e) {}
 
-        await new Promise(r => setTimeout(r, 4000));
+        await new Promise(r => setTimeout(r, 3000));
 
-        // الانتظار والتنقل لصفحة اختيار الخطة والدفع
         if (page.url().includes('signup') || page.url().includes('plan') || page.url().includes('epr')) {
             await sendMessage(chatId, "📋 اختيار الخطة وتجاوز الخطوات التمهيدية...");
             try {
@@ -203,7 +195,7 @@ async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
             await new Promise(r => setTimeout(r, 4000));
         }
 
-        // اختيار طريقة الدفع عبر رصيد الهاتف (DCB) بشكل شامل
+        // اختيار طريقة الدفع عبر رصيد الهاتف (DCB)
         await sendMessage(chatId, "💳 اختيار طريقة الدفع عبر رصيد الهاتف (DCB)...");
         await page.evaluate(() => {
             const elements = Array.from(document.querySelectorAll('*'));
@@ -217,7 +209,7 @@ async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
         await page.screenshot({ path: scPath2 });
         await sendPhoto(chatId, scPath2, "📸 صورة 2: الوصول لصفحة إدخال رقم الهاتف");
 
-        // البحث عن حقل إدخال رقم الهاتف وإدخال الرقم بالصيغة الصحيحة 9647xxxxxxxx
+        // حقن رقم الهاتف العراقي بالشكل الصحيح 9647xxxxxxxx
         await sendMessage(chatId, `📱 حقن الرقم العراقي بدقة: ${phone}`);
         
         await page.waitForSelector('input[type="tel"], input[name*="phone"], input[id*="phone"], input', { timeout: 15000 }).catch(() => {});
@@ -243,7 +235,7 @@ async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
             throw new Error("تعذر العثور على حقل إدخال رقم الهاتف في المتصفح.");
         }
 
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 1500));
 
         let scPath3 = path.join(TMPDIR, `step3_${Date.now()}.png`);
         await page.screenshot({ path: scPath3 });
