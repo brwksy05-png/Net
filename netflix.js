@@ -23,7 +23,7 @@ if (!BOT_TOKEN) {
 const TG_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const TG = axios.create({ timeout: 45000 });
 
-// إعدادات البروكسي المطابقة لإعدادات SOCKS5 في صورتك
+// إعدادات البروكسي الصحيحة تماماً (السليمانية / بروتوكول HTTP مع المصادقة)
 const PROXY_SERVER = "rp.scrapegw.com:6060";
 const PROXY_USER = "et95yha52718u9-country-iq-state-assulaymaniyah";
 const PROXY_PASS = "cwf2pqqblvu5ci5";
@@ -144,13 +144,13 @@ function normalizeIqPhone(text) {
     return null;
 }
 
-// ---------------- Puppeteer Browser Automation (SOCKS5 Proxy Fixed) ----------------
+// ---------------- Puppeteer Browser Automation (HTTP Proxy Fixed) ----------------
 async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
-    await sendMessage(chatId, "🌐 جاري تشغيل المتصفح عبر بروتوكول SOCKS5 والبروكسي العراقي...");
+    await sendMessage(chatId, "🌐 جاري تشغيل المتصفح عبر بروكسي السليمانية (HTTP Proxy)...");
     const browser = await puppeteer.launch({
         headless: "new",
         args: [
-            `--proxy-server=socks5://${PROXY_SERVER}`,
+            `--proxy-server=${PROXY_SERVER}`,
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
@@ -161,7 +161,7 @@ async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
     try {
         const page = await browser.newPage();
         
-        // تمرير بيانات المصادقة بأمان لتجاوز خطأ 407 عبر SOCKS5
+        // تمرير بيانات المصادقة للبروكسي عبر بروتوكول HTTP النظامي
         await page.authenticate({
             username: PROXY_USER,
             password: PROXY_PASS
@@ -175,7 +175,7 @@ async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
 
         let scPath1 = path.join(TMPDIR, `step1_${Date.now()}.png`);
         await page.screenshot({ path: scPath1 });
-        await sendPhoto(chatId, scPath1, "📸 صورة 1: فتح الرابط بنجاح عبر SOCKS5");
+        await sendPhoto(chatId, scPath1, "📸 صورة 1: فتح الرابط بنجاح عبر بروكسي السليمانية");
 
         // الضغط على زر البدء أو المتابعة
         try {
@@ -260,7 +260,7 @@ async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
         await page.screenshot({ path: scPath4 });
         await sendPhoto(chatId, scPath4, "📸 صورة 4: مرحلة إرسال الكود النهائية");
 
-        await sendMessage(chatId, "✅ تم إرسال طلب الـ SMS بنجاح عبر متصفح البروكسي العراقي!\n\n🔐 يرجى إدخال رمز التحقق (OTP) يدوياً في صفحة نتفلكس لإتمام العملية.");
+        await sendMessage(chatId, "✅ تم إرسال طلب الـ SMS بنجاح عبر متصفح بروكسي السليمانية!\n\n🔐 يرجى إدخال رمز التحقق (OTP) يدوياً في صفحة نتفلكس لإتمام العملية.");
 
     } catch (err) {
         let scErrPath = path.join(TMPDIR, `err_screen_${Date.now()}.png`);
@@ -311,7 +311,7 @@ async function fastFlow(chatId, eprUrl) {
     await sendMessage(
         chatId,
         "⚡ بدأ البوت.\n" +
-        "أطلب منك الآن رقم الهاتف العراقي لتنفيذ الخطوات وفتح المتصفح عبر بروكسي السليمانية SOCKS5.\n" +
+        "أطلب منك الآن رقم الهاتف العراقي لتنفيذ الخطوات وفتح المتصفح عبر بروكسي السليمانية HTTP.\n" +
         "رمز OTP المرتبط بالفوترة يبقى إدخاله يدويًا داخل Netflix."
     );
 
@@ -405,7 +405,7 @@ async function handleMessage(msg) {
 
     if (["إنشاء حساب", "/new", "/create"].includes(text)) {
         if (ACTIVE_JOBS[chatId]) {
-            await sendMessage(chatId, "عندكعية شغالة حالياً.");
+            await sendMessage(chatId, "عندك عملية شغالة حالياً.");
             return;
         }
         CHAT_STATE[chatId] = CHAT_STATE[chatId] || {};
