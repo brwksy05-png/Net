@@ -1,0 +1,16 @@
+{
+  "name": "netflix-telegram-bot",
+  "version": "1.0.0",
+  "description": "netflix EPR Telegram Bot V17 Netflix.js",
+  "main": "index.js",
+  "scripts": {
+    "start": "node netflix.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "https-proxy-agent": "^7.0.2",
+    "node-telegram-bot-api": "^0.63.0",
+    "socks-proxy-agent": "^8.0.2",
+    "uuid": "^9.0.0"
+  }
+}
