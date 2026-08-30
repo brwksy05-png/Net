@@ -6,7 +6,6 @@ const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
 const axios = require('axios');
-const puppeteer = require('puppeteer');
 const { v4: uuidv4 } = require('uuid');
 
 const NETFLIX = "https://www.netflix.com";
@@ -33,11 +32,6 @@ const PQ_VERSION = 102;
 const DEFAULT_APP_VERSION = "v622e5d08";
 const DEFAULT_HAWKINS_VERSION = "5.26.0";
 const DEFAULT_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36";
-
-// إعدادات البروكسي العراقي المخصص
-const PROXY_SERVER = "rp.scrapegw.com:6060";
-const PROXY_USER = "et95yha52718u9-country-iq";
-const PROXY_PASS = "cwf2pqqblvu5ci5";
 
 let CHAT_STATE = {};
 let ACTIVE_JOBS = {};
@@ -412,16 +406,6 @@ class NetflixDirect {
         return [false, "direct_bootstrap_not_confirmed"];
     }
 
-    importPuppeteerCookies(cookies) {
-        for (let c of cookies) {
-            if (c.name && c.value !== undefined) {
-                this.setCookie(c.name, c.value);
-            }
-        }
-        this.referer = `${NETFLIX}/?accountCreated=success`;
-        this.note("imported_browser_cookies", { count: cookies.length });
-    }
-
     async preloadFromScreen(screen) {
         let preloadStates = screen.preload || [];
         if (preloadStates.length === 0) return [];
@@ -541,39 +525,6 @@ class NetflixDirect {
     }
 }
 
-// ---------------- Puppeteer Browser Bootstrap ----------------
-async function bootstrapWithPuppeteer(eprUrl, chatId) {
-    await sendMessage(chatId, "⚡ تشغيل المتصفح عبر البروكسي العراقي لتثبيت جلسة EPR...");
-    const browser = await puppeteer.launch({
-        headless: "new",
-        args: [
-            `--proxy-server=${PROXY_SERVER}`,
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--window-size=430,900'
-        ]
-    });
-    try {
-        const page = await browser.newPage();
-        await page.authenticate({ username: PROXY_USER, password: PROXY_PASS });
-        await page.goto(eprUrl, { waitUntil: 'networkidle2', timeout: 45000 });
-
-        let deadline = Date.now() + 35000;
-        while (Date.now() < deadline) {
-            let u = page.url() || "";
-            if (u.toLowerCase().includes("accountcreated=success")) {
-                let cookies = await page.cookies();
-                return [cookies, u];
-            }
-            await new Promise(r => setTimeout(r, 200));
-        }
-        throw new Error("EPR bootstrap ما وصل accountCreated=success عبر المتصفح");
-    } finally {
-        await browser.close();
-    }
-}
-
 // ---------------- Fast Job Flow ----------------
 async function waitForPhone(chatId, timeout = 300000) {
     return new Promise((resolve) => {
@@ -614,13 +565,7 @@ async function fastFlow(chatId, eprUrl) {
     let t = Date.now();
     let [ok, mode] = await eng.openEprDirect(eprUrl);
     if (!ok) {
-        let [cookies, current] = await bootstrapWithPuppeteer(eprUrl, chatId);
-        eng.importPuppeteerCookies(cookies);
-        let ms = await eng.membershipStatus();
-        if (ms !== "NEVER_MEMBER") {
-            throw new Error(`بعد bootstrap ما تأكد إنشاء الحساب. MembershipStatus=${ms}`);
-        }
-        mode = "chromium_bootstrap_then_direct";
+        throw new Error("فشل فتح رابط الـ EPR المباشر");
     }
     await sendMessage(chatId, `✅ 1/4 تم إنشاء/تثبيت جلسة الحساب (${((Date.now()-t)/1000).toFixed(1)}s)\nالمحرك: ${mode}`);
 
@@ -761,4 +706,4 @@ bot.on('message', async (msg) => {
 });
 
 console.log("\nNetflix EPR Telegram V17 PHONE + VERIFY HANDOFF (Node.js)");
-console.log("[+] Direct GraphQL + Puppeteer Iraqi Proxy fallback; Verify triggers payment challenge.");
+console.log("[+] Direct GraphQL + phone prompt; Verify can trigger payment MFA, OTP entry remains manual.");
