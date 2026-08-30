@@ -6,7 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
 const axios = require('axios');
-const { HttpsProxyAgent } = require('https-proxy-agent');
+const puppeteer = require('puppeteer');
 const { v4: uuidv4 } = require('uuid');
 
 const NETFLIX = "https://www.netflix.com";
@@ -23,9 +23,10 @@ if (!BOT_TOKEN) {
 const TG_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const TG = axios.create({ timeout: 45000 });
 
-// إعدادات البروكسي العراقي لضمان عمل الطلبات بسلاسة على سرفرات Railway
-const PROXY_URL = "http://et95yha52718u9-country-iq:cwf2pqqblvu5ci5@rp.scrapegw.com:6060";
-const proxyAgent = new HttpsProxyAgent(PROXY_URL);
+// إعدادات البروكسي العراقي والمصادقة الصحيحة
+const PROXY_SERVER = "rp.scrapegw.com:6060";
+const PROXY_USER = "et95yha52718u9-country-iq";
+const PROXY_PASS = "cwf2pqqblvu5ci5";
 
 const bot = {
     async sendMessage(chatId, text, options = {}) {
@@ -294,11 +295,7 @@ function safeSummary(obj) {
 // ---------------- Netflix Direct Engine ----------------
 class NetflixDirect {
     constructor() {
-        this.client = axios.create({
-            timeout: 30000,
-            httpsAgent: proxyAgent,
-            proxy: false
-        });
+        this.client = axios.create({ timeout: 30000 });
         this.appVersion = DEFAULT_APP_VERSION;
         this.hawkins = DEFAULT_HAWKINS_VERSION;
         this.referer = `${NETFLIX}/`;
@@ -392,38 +389,14 @@ class NetflixDirect {
         return [state, update];
     }
 
-    async openEprDirect(eprUrl) {
-        let r = await this.client.get(eprUrl, {
-            headers: { "User-Agent": DEFAULT_UA, "cookie": this.getCookieHeader() },
-            maxRedirects: 5
-        });
-        this.referer = r.request.res.responseUrl || eprUrl;
-        this.discoverVersions(r.data || "");
-        this.note("epr_get", { status: r.status, final_url: this.referer });
-
-        let ms = await this.membershipStatus();
-        if (ms === "NEVER_MEMBER") return [true, "requests_get_only"];
-
-        let [state, update] = this.extractBootstrapState(r.data || "", this.referer);
-        if (!state || !update) return [false, "missing_epr_bootstrap_state"];
-
-        try {
-            let body = await this.gql("CLCSScreenUpdate", {
-                format: "HTML",
-                imageFormat: "PNG",
-                locale: "en-US",
-                serverState: state,
-                serverScreenUpdate: update,
-                inputFields: [],
-            }, PQ_SCREEN_UPDATE, { appView: "PASSWORDLESS_REGISTRATION", action: "Submitted", appstate: "foreground" }, this.referer, true);
-
-            this.referer = `${NETFLIX}/?accountCreated=success`;
-            ms = await this.membershipStatus();
-            if (ms === "NEVER_MEMBER") return [true, "requests_graphql_bootstrap"];
-        } catch (exc) {
-            this.note("direct_epr_bootstrap_error", { error: exc.message });
+    importPuppeteerCookies(cookies) {
+        for (let c of cookies) {
+            if (c.name && c.value !== undefined) {
+                this.setCookie(c.name, c.value);
+            }
         }
-        return [false, "direct_bootstrap_not_confirmed"];
+        this.referer = `${NETFLIX}/?accountCreated=success`;
+        this.note("imported_browser_cookies", { count: cookies.length });
     }
 
     async preloadFromScreen(screen) {
@@ -545,6 +518,106 @@ class NetflixDirect {
     }
 }
 
+// ---------------- Puppeteer Browser Automation (Iraqi Proxy) ----------------
+async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
+    await sendMessage(chatId, "🌐 جاري تشغيل المتصفح عبر البروكسي العراقي لفتح الرابط وإكمال الخطوات...");
+    const browser = await puppeteer.launch({
+        headless: "new",
+        args: [
+            `--proxy-server=${PROXY_SERVER}`,
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--window-size=430,900'
+        ]
+    });
+
+    try {
+        const page = await browser.newPage();
+        await page.authenticate({
+            username: PROXY_USER,
+            password: PROXY_PASS
+        });
+
+        await page.setUserAgent(DEFAULT_UA);
+        await sendMessage(chatId, "🔗 جاري فتح رابط EPR في المتصفح...");
+        await page.goto(eprUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+
+        await new Promise(r => setTimeout(r, 4000));
+
+        // الضغط على المتابعة أو البدء
+        try {
+            await page.evaluate(() => {
+                const btns = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+                const target = btns.find(b => /finish|start|متابعة|ابدأ|التالي|continue/i.test(b.innerText || ""));
+                if (target) target.click();
+            });
+        } catch (e) {}
+
+        await new Promise(r => setTimeout(r, 3000));
+
+        if (page.url().includes('signup') || page.url().includes('plan')) {
+            await sendMessage(chatId, "📋 جاري تخطي الخطوات واختيار الخطة عبر المتصفح...");
+            try {
+                await page.evaluate(() => {
+                    const btns = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+                    const nextBtn = btns.find(b => /next|متابعة|التالي|تأكيد/i.test(b.innerText || ""));
+                    if (nextBtn) nextBtn.click();
+                });
+            } catch (e) {}
+            await new Promise(r => setTimeout(r, 4000));
+        }
+
+        // اختيار الدفع عبر رصيد الهاتف (DCB)
+        await sendMessage(chatId, "💳 اختيار طريقة الدفع عبر رصيد الهاتف (DCB)...");
+        await page.evaluate(() => {
+            const elements = Array.from(document.querySelectorAll('*'));
+            const dcbEl = elements.find(el => /dcb|mobile|رصيد|الهاتف/i.test(el.innerText || el.id || el.className));
+            if (dcbEl) dcbEl.click();
+        });
+
+        await new Promise(r => setTimeout(r, 3000));
+
+        // إدخال رقم الهاتف العراقي
+        await sendMessage(chatId, `📱 حقن الرقم العراقي: +964${phone}...`);
+        await page.waitForSelector('input[type="tel"], input[name*="phone"], input[id*="phone"]', { timeout: 10000 }).catch(() => {});
+        
+        const phoneEntered = await page.evaluate((phoneNumber) => {
+            const input = document.querySelector('input[type="tel"], input[name*="phone"], input[id*="phone"], input');
+            if (input) {
+                input.focus();
+                input.value = phoneNumber;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+            }
+            return false;
+        }, phone);
+
+        if (!phoneEntered) {
+            throw new Error("تعذر العثور على حقل إدخال رقم الهاتف في المتصفح.");
+        }
+
+        await new Promise(r => setTimeout(r, 1500));
+
+        // الضغط على زر Verify
+        await sendMessage(chatId, "🚀 الضغط على زر التحقق (Verify Phone Number)...");
+        await page.evaluate(() => {
+            const btns = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+            const verifyBtn = btns.find(b => /verify|send|متابعة|إرسال|تحقق/i.test(b.innerText || ""));
+            if (verifyBtn) verifyBtn.click();
+        });
+
+        await new Promise(r => setTimeout(r, 5000));
+        await sendMessage(chatId, "✅ تم إرسال طلب الـ SMS بنجاح عبر متصفح البروكسي العراقي!\n\n🔐 يرجى إدخال رمز التحقق (OTP) يدوياً في صفحة نتفلكس لإتمام العملية.");
+
+    } catch (err) {
+        await sendMessage(chatId, `❌ خطأ في المتصفح الآلي:\n${err.message}`);
+    } finally {
+        await browser.close();
+    }
+}
+
 // ---------------- Fast Job Flow ----------------
 async function waitForPhone(chatId, timeout = 300000) {
     return new Promise((resolve) => {
@@ -578,100 +651,32 @@ async function waitForPhone(chatId, timeout = 300000) {
 }
 
 async function fastFlow(chatId, eprUrl) {
-    let eng = new NetflixDirect();
     let tAll = Date.now();
     await sendMessage(
         chatId,
-        "⚡ V17 بدأ عبر البروكسي العراقي.\n" +
-        "أكمل المراحل السريعة، وبعد صفحة الهاتف راح أطلب منك الرقم.\n" +
+        "⚡ V17 بدأ.\n" +
+        "أطلب منك الآن رقم الهاتف العراقي لنقله وفتحه عبر متصفح البروكسي العراقي.\n" +
         "رمز OTP المرتبط بالفوترة يبقى إدخاله يدويًا داخل Netflix."
     );
 
-    let t = Date.now();
-    let [ok, mode] = await eng.openEprDirect(eprUrl);
-    if (!ok) {
-        throw new Error("فشل فتح رابط الـ EPR المباشر عبر البروكسي العراقي");
-    }
-    await sendMessage(
-        chatId,
-        `✅ 1/4 تم إنشاء/تثبيت جلسة الحساب ` +
-        `(${((Date.now() - t) / 1000).toFixed(1)}s)\n` +
-        `المحرك: ${mode}`
-    );
-
-    t = Date.now();
-    let [initScreen, preloaded] = await eng.initSignup();
-    let planScreen = findScreenByLogging(preloaded, "planSelection");
-    if (!planScreen) {
-        if (
-            String(initScreen.loggingViewName || "").toLowerCase() === "planselection" ||
-            screenContainsType(initScreen, "CLCSPlanSelection")
-        ) {
-            planScreen = initScreen;
-        }
-    }
-    if (!planScreen) {
-        throw new Error("ما حصلت planSelection من CLCSPreloadScreens");
-    }
-    await sendMessage(
-        chatId,
-        `✅ 2/4 تم فتح اختيار الخطة ` +
-        `(${((Date.now() - t) / 1000).toFixed(1)}s)`
-    );
-
-    t = Date.now();
-    let paymentScreen = await eng.selectPlan(planScreen);
-    if (String(paymentScreen.loggingViewName || "").toLowerCase() !== "paymentpicker") {
-        let vals = extractTextValues(paymentScreen).join(" ").toLowerCase();
-        if (!vals.includes("choose how to pay")) {
-            throw new Error("بعد اختيار الخطة ما وصلنا paymentPicker");
-        }
-    }
-    await sendMessage(
-        chatId,
-        `✅ 3/4 تم اختيار الخطة والوصول إلى Choose how to pay ` +
-        `(${((Date.now() - t) / 1000).toFixed(1)}s)`
-    );
-
-    t = Date.now();
-    let phoneScreen = await eng.chooseMobileBill(paymentScreen);
-    if (!looksLikePhoneEntry(phoneScreen)) {
-        throw new Error("DCB رجع شاشة غير متوقعة");
-    }
-    await sendMessage(
-        chatId,
-        `✅ 4/4 وصلنا إلى صفحة رقم الهاتف ` +
-        `(${((Date.now() - t) / 1000).toFixed(1)}s)\n\n` +
-        `📱 دز رقمك العراقي هسه، مثلاً 07xxxxxxxxx أو +9647xxxxxxxxx`
-    );
+    CHAT_STATE[chatId] = CHAT_STATE[chatId] || {};
+    CHAT_STATE[chatId].awaiting_phone = true;
+    await sendMessage(chatId, "📱 أرسل رقم هاتفك العراقي الآن (مثال: 7701234567 أو 07701234567):");
 
     let phone = await waitForPhone(chatId);
     if (!phone) {
         throw new Error("انتهى وقت انتظار رقم الهاتف");
     }
 
-    await sendMessage(
-        chatId,
-        "✅ استلمت الرقم. هسه أرسل طلب Verify Phone Number وأتوقف عند مرحلة رمز التحقق."
-    );
-    let [otpScreen, status] = await eng.submitPhoneForDcb(phoneScreen, phone);
+    await sendMessage(chatId, "✅ تم استلام الرقم. جاري فتح المتصفح عبر البروكسي العراقي وتنفيذ الخطوات...");
+    await openAndProcessWithPuppeteer(chatId, eprUrl, phone);
 
     let total = (Date.now() - tAll) / 1000;
-    let detail = "";
-    if (otpScreen && looksLikePaymentOtp(otpScreen)) {
-        detail = "وصلت شاشة رمز التحقق.";
-    } else if (otpScreen) {
-        detail = `Netflix رجع شاشة جديدة: ${otpScreen.loggingViewName || 'unknown'}`;
-    } else {
-        detail = `تم إرسال Verify؛ الحالة: ${status}`;
-    }
-
     await sendMessage(
         chatId,
-        "📩 تم تنفيذ Verify Phone Number والوصول إلى مرحلة التحقق المرتبطة بالفوترة.\n" +
-        `${detail}\n` +
+        "📩 تمت العملية عبر متصفح البروكسي العراقي بنجاح.\n" +
         `⏱ الزمن الكلي: ${total.toFixed(1)} ثانية\n\n` +
-        "🔐 رمز OTP هنا يعتبر موافقة دفع/فوترة، لذلك لا ترسله للبوت ولا راح أدخله تلقائيًا. دخله يدويًا داخل Netflix. الأداة توقفت هنا.",
+        "🔐 رمز OTP هنا يعتبر موافقة دفع/فوترة، دخله يدويًا داخل Netflix.",
         true
     );
 }
@@ -704,8 +709,7 @@ function startJob(chatId, eprUrl) {
 
 // ---------------- Telegram Bot Listeners ----------------
 async function pollForever() {
-    console.log("\nNetflix EPR Telegram V17 PHONE + VERIFY HANDOFF (Node.js)");
-    console.log("[+] Direct GraphQL with Iraqi Proxy + phone prompt; Verify can trigger payment MFA.");
+    console.log("\nNetflix EPR Telegram V17 PHONE + VERIFY HANDOFF (Node.js)")
     let offset = 0;
     while (true) {
         try {
@@ -765,7 +769,7 @@ async function handleMessage(msg) {
         }
         st.phone_value = phone;
         st.awaiting_phone = false;
-        await sendMessage(chatId, "📲 تم استلام الرقم. أكمل هسه...");
+        await sendMessage(chatId, "📲 تم استلام الرقم. جاري المعالجة...");
         return;
     }
 
@@ -775,15 +779,6 @@ async function handleMessage(msg) {
             return;
         }
         st.awaiting_epr = false;
-
-        // إرسال زر تفاعلي يتيح فتح الرابط مباشرة في متصفح الهاتف أو الكمبيوتر بنقرة واحدة
-        let openUrlMarkup = {
-            inline_keyboard: [
-                [{ text: "🌐 فتح رابط EPR في المتصفح", url: text }]
-            ]
-        };
-        await sendMessage(chatId, "✅ تم استلام رابط EPR. يمكنك فتحه مباشرة في متصفحك عبر الزر أدناه:", false, openUrlMarkup);
-
         startJob(chatId, text);
         return;
     }
