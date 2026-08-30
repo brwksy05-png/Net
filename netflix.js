@@ -1,7 +1,8 @@
 const TelegramBot = require('node-telegram-bot-api');
-const axios = require('axios');
 const puppeteer = require('puppeteer');
-const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const BOT_TOKEN = process.env.BOT_TOKEN || "";
 if (!BOT_TOKEN) {
@@ -10,11 +11,11 @@ if (!BOT_TOKEN) {
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-const OWNER_FILE = require('path').join(require('os').homedir(), '.netflix_epr_bot_owner.json');
+const OWNER_FILE = path.join(os.homedir(), '.netflix_epr_bot_owner.json');
 const CHAT_STATE = {};
 const ACTIVE_JOBS = {};
 
-// إعدادات البروكسي العراقي المطلوب
+// إعدادات البروكسي العراقي
 const PROXY_SERVER = "rp.scrapegw.com:6060";
 const PROXY_USER = "et95yha52718u9-country-iq";
 const PROXY_PASS = "cwf2pqqblvu5ci5";
@@ -40,8 +41,8 @@ async function sendMessage(chatId, text, keyboard = false) {
 
 function loadOwner() {
     try {
-        if (require('fs').existsSync(OWNER_FILE)) {
-            const data = JSON.parse(require('fs').readFileSync(OWNER_FILE, 'utf8'));
+        if (fs.existsSync(OWNER_FILE)) {
+            const data = JSON.parse(fs.readFileSync(OWNER_FILE, 'utf8'));
             return parseInt(data.owner_id);
         }
     } catch (e) {}
@@ -50,7 +51,7 @@ function loadOwner() {
 
 function saveOwner(uid) {
     try {
-        require('fs').writeFileSync(OWNER_FILE, JSON.stringify({ owner_id: uid }), 'utf8');
+        fs.writeFileSync(OWNER_FILE, JSON.stringify({ owner_id: uid }), 'utf8');
     } catch (e) {}
 }
 
@@ -73,7 +74,7 @@ function normalizeIqPhone(text) {
 
 // ---------------- Puppeteer Automation Engine ----------------
 async function runPuppeteerAutomation(chatId, eprUrl, phone) {
-    await sendMessage(chatId, "🌐 جاري تشغيل المتصفح عبر البروكسي العراقي المخصص...");
+    await sendMessage(chatId, "🌐 جاري تشغيل المتصفح الخفي عبر البروكسي العراقي...");
 
     const browser = await puppeteer.launch({
         headless: "new",
@@ -89,7 +90,7 @@ async function runPuppeteerAutomation(chatId, eprUrl, phone) {
     try {
         const page = await browser.newPage();
         
-        // تسجيل الدخول للبروكسي بالصلاحيات المطلوبة
+        // المصادقة على البروكسي
         await page.authenticate({
             username: PROXY_USER,
             password: PROXY_PASS
@@ -97,12 +98,12 @@ async function runPuppeteerAutomation(chatId, eprUrl, phone) {
 
         await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
         
-        await sendMessage(chatId, "🔗 جاري فتح رابط نتفلكس وتجاوز الحماية...");
+        await sendMessage(chatId, "🔗 جاري فتح رابط نتفلكس عبر المتصفح...");
         await page.goto(eprUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
         await new Promise(r => setTimeout(r, 4000));
 
-        // الخطوة 1: الضغط على زر المتابعة أو البدء إن وجد
+        // الضغط على زر المتابعة أو البدء إن وجد
         try {
             await page.evaluate(() => {
                 const btns = Array.from(document.querySelectorAll('button, a, [role="button"]'));
@@ -113,7 +114,7 @@ async function runPuppeteerAutomation(chatId, eprUrl, phone) {
 
         await new Promise(r => setTimeout(r, 3000));
 
-        // الانتقال لصفحة خطط الاشتراكات أو اختيار الخطة (3108) وتجاوز الخطوات المباشرة
+        // اختيار الخطة وتجاوز الخطوات التمهيدية
         if (page.url().includes('signup') || page.url().includes('plan')) {
             await sendMessage(chatId, "📋 جاري اختيار الخطة وتجاوز الخطوات التمهيدية...");
             try {
@@ -126,21 +127,17 @@ async function runPuppeteerAutomation(chatId, eprUrl, phone) {
             await new Promise(r => setTimeout(r, 4000));
         }
 
-        // اختيار طريقة الدفع عبر الهاتف المحمول (DCB / Mobile Billing)
+        // اختيار طريقة الدفع عبر رصيد الهاتف (DCB)
         await sendMessage(chatId, "💳 جاري اختيار خيار الدفع عبر رصيد الهاتف (DCB)...");
-        let dcbClicked = await page.evaluate(() => {
+        await page.evaluate(() => {
             const elements = Array.from(document.querySelectorAll('*'));
             const dcbEl = elements.find(el => /dcb|mobile|رصيد|الهاتف/i.test(el.innerText || el.id || el.className));
-            if (dcbEl) {
-                dcbEl.click();
-                return true;
-            }
-            return false;
+            if (dcbEl) dcbEl.click();
         });
 
         await new Promise(r => setTimeout(r, 3000));
 
-        // الوصول لصفحة إدخال رقم الهاتف وحقن الرقم
+        // حقن رقم الهاتف العراقي
         await sendMessage(chatId, `📱 جاري حقن الرقم العراقي: +964${phone}...`);
         
         await page.waitForSelector('input[type="tel"], input[name*="phone"], input[id*="phone"]', { timeout: 10000 }).catch(() => {});
@@ -163,7 +160,7 @@ async function runPuppeteerAutomation(chatId, eprUrl, phone) {
 
         await new Promise(r => setTimeout(r, 1500));
 
-        // الضغط على زر إرسال الكود (Verify Phone Number / Continue)
+        // الضغط على زر التحقق وإرسال الكود
         await sendMessage(chatId, "🚀 جاري الضغط على زر إرسال كود التحقق (Verify)...");
         await page.evaluate(() => {
             const btns = Array.from(document.querySelectorAll('button, a, [role="button"]'));
