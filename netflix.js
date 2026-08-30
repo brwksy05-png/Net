@@ -554,25 +554,14 @@ function normalizeIqPhone(text) {
  * وليس safe_summary
  */
 function safeSummary(obj) {
-
-    if (
-        obj &&
-        typeof obj === 'object'
-    ) {
-
+    if (obj && typeof obj === 'object') {
         if (Array.isArray(obj)) {
-            return obj
-                .slice(0, 20)
-                .map(x => safeSummary(x));
+            return obj.slice(0, 20).map(x => safeSummary(x));
         }
 
         let out = {};
 
-        for (
-            let [k, v]
-            of Object.entries(obj)
-        ) {
-
+        for (let [k, v] of Object.entries(obj)) {
             let kl = k.toLowerCase();
 
             if (
@@ -587,29 +576,14 @@ function safeSummary(obj) {
                     "authorization",
                     "flwssn",
                     "gsid"
-                ].some(
-                    x => kl.includes(x)
-                )
+                ].some(x => kl.includes(x))
             ) {
-
                 out[k] = "<redacted>";
-
             } else if (
-                [
-                    "componenttree",
-                    "preload"
-                ].includes(kl)
+                ["componenttree", "preload"].includes(kl)
             ) {
-
                 out[k] = "<omitted>";
-
             } else {
-
-                /*
-                 * مهم:
-                 * هنا أيضًا safeSummary
-                 * وليس safe_summary
-                 */
                 out[k] = safeSummary(v);
             }
         }
@@ -617,14 +591,8 @@ function safeSummary(obj) {
         return out;
     }
 
-    if (
-        typeof obj === 'string' &&
-        obj.length > 500
-    ) {
-        return (
-            obj.substring(0, 500) +
-            "..."
-        );
+    if (typeof obj === 'string' && obj.length > 500) {
+        return obj.substring(0, 500) + "...";
     }
 
     return obj;
