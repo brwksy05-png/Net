@@ -22,14 +22,12 @@ if (!BOT_TOKEN) {
 const TG_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const TG = axios.create({ timeout: 45000 });
 
-// تعريفه بشكل صحيح لكي لا تظهر مشكلة bot is not defined
 const bot = {
     async sendMessage(chatId, text, options = {}) {
         return await tgCall("sendMessage", { chat_id: String(chatId), text, ...options });
     }
 };
 
-// Persisted-query IDs
 const PQ_MEMBERSHIP = "3f50f3b3-fff8-48c0-bbd3-5fa2cb04b3c1";
 const PQ_INIT_SIGNUP = "59134b11-7416-42ca-abb7-6d1f318975fe";
 const PQ_PRELOAD = "2eceeacc-e2fe-4157-82c2-6fcbec108525";
