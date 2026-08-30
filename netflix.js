@@ -23,9 +23,9 @@ if (!BOT_TOKEN) {
 const TG_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const TG = axios.create({ timeout: 45000 });
 
-// إعدادات البروكسي العراقي
+// إعدادات البروكسي الجديد (السليمانية / العراق) مع بيانات المصادقة الصحيحة
 const PROXY_SERVER = "rp.scrapegw.com:6060";
-const PROXY_USER = "et95yha52718u9-country-iq";
+const PROXY_USER = "et95yha52718u9-country-iq-state-assulaymaniyah";
 const PROXY_PASS = "cwf2pqqblvu5ci5";
 
 const bot = {
@@ -129,36 +129,24 @@ function ensureOwner(uid) {
     return owner === uid;
 }
 
-// ---------------- Fixed Phone Normalizer ----------------
+// ---------------- Phone Normalizer ----------------
 function normalizeIqPhone(text) {
     let digits = (text || "").replace(/\D+/g, "");
-    if (digits.startsWith("00964")) {
-        digits = digits.slice(2);
-    }
-    if (digits.startsWith("964") && digits.length === 13) {
-        return digits;
-    }
-    if (digits.startsWith("964") && digits.length === 12) {
-        return digits;
-    }
-    if (digits.startsWith("0") && digits.length === 11) {
-        return "964" + digits.slice(1);
-    }
-    if (digits.length === 10 && digits.startsWith("7")) {
-        return "964" + digits;
-    }
-    if (digits.length === 11 && digits.startsWith("7")) {
-        return "964" + digits;
-    }
+    if (digits.startsWith("00964")) digits = digits.slice(2);
+    if (digits.startsWith("964") && digits.length === 13) return digits;
+    if (digits.startsWith("964") && digits.length === 12) return digits;
+    if (digits.startsWith("0") && digits.length === 11) return "964" + digits.slice(1);
+    if (digits.length === 10 && digits.startsWith("7")) return "964" + digits;
+    if (digits.length === 11 && digits.startsWith("7")) return "964" + digits;
     if (digits.length >= 10) {
         return "964" + digits.slice(-10);
     }
     return null;
 }
 
-// ---------------- Puppeteer Browser Automation ----------------
+// ---------------- Puppeteer Browser Automation (Proxy Fixed) ----------------
 async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
-    await sendMessage(chatId, "🌐 جاري تشغيل المتصفح عبر البروكسي العراقي...");
+    await sendMessage(chatId, "🌐 جاري تشغيل المتصفح عبر بروكسي السليمانية العراقي (مع المصادقة)...");
     const browser = await puppeteer.launch({
         headless: "new",
         args: [
@@ -172,6 +160,8 @@ async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
 
     try {
         const page = await browser.newPage();
+        
+        // تفعيل المصادقة الخاصة بالبروكسي لمنع خطأ 407 نهائياً
         await page.authenticate({
             username: PROXY_USER,
             password: PROXY_PASS
@@ -179,13 +169,13 @@ async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
 
         await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
         
-        await sendMessage(chatId, "🔗 جاري فتح رابط EPR في المتصفح...");
+        await sendMessage(chatId, "🔗 جاري فتح رابط EPR في المتصفح وتخطي الحماية...");
         await page.goto(eprUrl, { waitUntil: 'networkidle2', timeout: 60000 });
         await new Promise(r => setTimeout(r, 4000));
 
         let scPath1 = path.join(TMPDIR, `step1_${Date.now()}.png`);
         await page.screenshot({ path: scPath1 });
-        await sendPhoto(chatId, scPath1, "📸 صورة 1: فتح الرابط بالمتصفح");
+        await sendPhoto(chatId, scPath1, "📸 صورة 1: فتح الرابط بنجاح عبر بروكسي السليمانية");
 
         // الضغط على زر البدء أو المتابعة
         try {
@@ -222,14 +212,18 @@ async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
 
         let scPath2 = path.join(TMPDIR, `step2_${Date.now()}.png`);
         await page.screenshot({ path: scPath2 });
-        await sendPhoto(chatId, scPath2, "📸 صورة 2: صفحة إدخال رقم الهاتف");
+        await sendPhoto(chatId, scPath2, "📸 صورة 2: الوصول لصفحة إدخال رقم الهاتف");
 
-        // حقن رقم الهاتف العراقي بالشكل الصحيح 9647xxxxxxxx
+        // حقن رقم الهاتف العراقي بالشكل الصحيح 9647xxxxxxxx مع الفحص الذكي للحقول
         await sendMessage(chatId, `📱 حقن الرقم العراقي بدقة: ${phone}`);
-        await page.waitForSelector('input[type="tel"], input[name*="phone"], input[id*="phone"]', { timeout: 10000 }).catch(() => {});
         
         const phoneEntered = await page.evaluate((phoneNumber) => {
-            const input = document.querySelector('input[type="tel"], input[name*="phone"], input[id*="phone"], input');
+            // محاولة البحث عن حقل الهاتف بعدة طرق لضمان إيجاده وعدم الفشل
+            const inputs = Array.from(document.querySelectorAll('input'));
+            let input = inputs.find(i => i.type === 'tel' || i.name?.includes('phone') || i.id?.includes('phone') || i.placeholder?.includes('phone') || i.getAttribute('autocomplete') === 'tel');
+            if (!input && inputs.length > 0) {
+                input = inputs.find(i => i.type === 'text' || i.type === 'number');
+            }
             if (input) {
                 input.focus();
                 input.value = "";
@@ -249,7 +243,7 @@ async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
 
         let scPath3 = path.join(TMPDIR, `step3_${Date.now()}.png`);
         await page.screenshot({ path: scPath3 });
-        await sendPhoto(chatId, scPath3, "📸 صورة 3: بعد حقن الرقم بدقة 964");
+        await sendPhoto(chatId, scPath3, "📸 صورة 3: بعد حقن الرقم بنجاح في الخانة");
 
         // الضغط على زر التحقق
         await sendMessage(chatId, "🚀 الضغط على زر التحقق (Verify)...");
@@ -265,9 +259,14 @@ async function openAndProcessWithPuppeteer(chatId, eprUrl, phone) {
         await page.screenshot({ path: scPath4 });
         await sendPhoto(chatId, scPath4, "📸 صورة 4: مرحلة إرسال الكود النهائية");
 
-        await sendMessage(chatId, "✅ تم إرسال طلب الـ SMS بنجاح عبر متصفح البروكسي العراقي!\n\n🔐 يرجى إدخال رمز التحقق (OTP) يدوياً في صفحة نتفلكس لإتمام العملية.");
+        await sendMessage(chatId, "✅ تم إرسال طلب الـ SMS بنجاح عبر متصفح بروكسي السليمانية!\n\n🔐 يرجى إدخال رمز التحقق (OTP) يدوياً في صفحة نتفلكس لإتمام العملية.");
 
     } catch (err) {
+        let scErrPath = path.join(TMPDIR, `err_screen_${Date.now()}.png`);
+        try {
+            await page.screenshot({ path: scErrPath });
+            await sendPhoto(chatId, scErrPath, "📸 صورة الخطأ الحاصل في المتصفح");
+        } catch(e) {}
         await sendMessage(chatId, `❌ خطأ في المتصفح الآلي:\n${err.message}`);
     } finally {
         await browser.close();
@@ -311,7 +310,7 @@ async function fastFlow(chatId, eprUrl) {
     await sendMessage(
         chatId,
         "⚡ بدأ البوت.\n" +
-        "أطلب منك الآن رقم الهاتف العراقي لتنفيذ الخطوات وفتح المتصفح عبر البروكسي العراقي.\n" +
+        "أطلب منك الآن رقم الهاتف العراقي لتنفيذ الخطوات وفتح المتصفح عبر بروكسي السليمانية.\n" +
         "رمز OTP المرتبط بالفوترة يبقى إدخاله يدويًا داخل Netflix."
     );
 
@@ -324,13 +323,13 @@ async function fastFlow(chatId, eprUrl) {
         throw new Error("انتهى وقت انتظار رقم الهاتف");
     }
 
-    await sendMessage(chatId, `✅ تم استلام الرقم وتنسيقه: ${phone}\nجاري فتح المتصفح عبر البروكسي العراقي وتنفيذ الخطوات التقنية...`);
+    await sendMessage(chatId, `✅ تم استلام الرقم وتنسيقه: ${phone}\nجاري فتح المتصفح عبر بروكسي السليمانية وتنفيذ الخطوات التقنية...`);
     await openAndProcessWithPuppeteer(chatId, eprUrl, phone);
 
     let total = (Date.now() - tAll) / 1000;
     await sendMessage(
         chatId,
-        "📩 تمت العملية عبر متصفح البروكسي العراقي بنجاح.\n" +
+        "📩 تمت العملية عبر متصفح بروكسي السليمانية بنجاح.\n" +
         `⏱ الزمن الكلي: ${total.toFixed(1)} ثانية\n\n` +
         "🔐 رمز OTP هنا يعتبر موافقة دفع/فوترة، دخله يدويًا داخل Netflix.",
         true
